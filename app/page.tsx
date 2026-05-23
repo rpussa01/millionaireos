@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { addXP, calcPercent, getUserId } from "@/lib/helpers";
 import { Button, Card, Input, ProgressBar, Textarea } from "@/components/UI";
-
+export const dynamic = "force-dynamic";
 const tabs = [
   "Dashboard",
   "Habits",
