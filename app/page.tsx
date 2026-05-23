@@ -168,21 +168,62 @@ function Dashboard() {
     level: 1,
   });
 
+  const [identity, setIdentity] = useState(
+    "You are becoming a disciplined builder of your future."
+  );
+
+  const [identityLoading, setIdentityLoading] = useState(false);
+
   useEffect(() => {
     load();
   }, []);
+
+  async function generateIdentity(identityData: any) {
+    try {
+      setIdentityLoading(true);
+
+      const res = await fetch("/api/identity", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(identityData),
+      });
+
+      const data = await res.json();
+
+      setIdentity(
+        data.identity || "You are becoming a disciplined builder of your future."
+      );
+    } catch {
+      setIdentity("You are becoming a disciplined builder of your future.");
+    } finally {
+      setIdentityLoading(false);
+    }
+  }
 
   async function load() {
     const userId = await getUserId();
     if (!userId) return;
 
-    const [profile, habits, career, finance, fitness, mindset] = await Promise.all([
+    const [
+      profile,
+      habits,
+      career,
+      finance,
+      fitness,
+      mindset,
+      aiPlans,
+      reviews,
+    ] = await Promise.all([
       supabase.from("profiles").select("xp, level").eq("id", userId).single(),
       supabase.from("habits").select("*").eq("user_id", userId),
       supabase.from("career_tasks").select("*").eq("user_id", userId),
       supabase.from("finance_logs").select("*").eq("user_id", userId),
       supabase.from("fitness_workouts").select("*").eq("user_id", userId),
       supabase.from("mindset_entries").select("*").eq("user_id", userId),
+      supabase.from("ai_insights").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(5),
+      supabase.from("weekly_reviews").select("*").eq("user_id", userId).order("created_at", { ascending: false }).limit(3),
     ]);
 
     const h = habits.data || [];
@@ -190,22 +231,54 @@ function Dashboard() {
     const f = finance.data || [];
     const w = fitness.data || [];
     const m = mindset.data || [];
+    const a = aiPlans.data || [];
+    const r = reviews.data || [];
 
-    const discipline = h.length ? Math.round((h.filter((x: any) => x.completed_today || x.completed).length / h.length) * 100) : 0;
-    const careerRate = c.length ? Math.round((c.filter((x: any) => x.completed).length / c.length) * 100) : 0;
+    const completedHabits = h.filter((x: any) => x.completed_today || x.completed);
+    const missedHabits = h.filter((x: any) => !x.completed_today && !x.completed);
 
-    const income = f.filter((x: any) => x.type === "income").reduce((s: number, x: any) => s + Number(x.amount), 0);
-    const expenses = f.filter((x: any) => x.type === "expense").reduce((s: number, x: any) => s + Number(x.amount), 0);
-    const financeRate = income ? Math.max(0, Math.min(100, Math.round(((income - expenses) / income) * 100))) : 0;
+    const discipline = h.length
+      ? Math.round((completedHabits.length / h.length) * 100)
+      : 0;
+
+    const careerRate = c.length
+      ? Math.round((c.filter((x: any) => x.completed).length / c.length) * 100)
+      : 0;
+
+    const income = f
+      .filter((x: any) => x.type === "income")
+      .reduce((s: number, x: any) => s + Number(x.amount), 0);
+
+    const expenses = f
+      .filter((x: any) => x.type === "expense")
+      .reduce((s: number, x: any) => s + Number(x.amount), 0);
+
+    const financeRate = income
+      ? Math.max(0, Math.min(100, Math.round(((income - expenses) / income) * 100)))
+      : 0;
 
     const weekAgo = new Date();
     weekAgo.setDate(weekAgo.getDate() - 7);
-    const fitnessRate = Math.min(100, Math.round((w.filter((x: any) => new Date(x.created_at) >= weekAgo).length / 5) * 100));
-    const mindsetRate = Math.min(100, Math.round((m.filter((x: any) => new Date(x.created_at) >= weekAgo).length / 7) * 100));
 
-    const overall = Math.round(discipline * 0.3 + careerRate * 0.25 + financeRate * 0.25 + fitnessRate * 0.15 + mindsetRate * 0.05);
+    const recentWorkouts = w.filter((x: any) => new Date(x.created_at) >= weekAgo);
+    const recentMindset = m.filter((x: any) => new Date(x.created_at) >= weekAgo);
 
-    setStats({
+    const fitnessRate = Math.min(100, Math.round((recentWorkouts.length / 5) * 100));
+    const mindsetRate = Math.min(100, Math.round((recentMindset.length / 7) * 100));
+
+    const highestStreak = h.length
+      ? Math.max(...h.map((x: any) => Number(x.streak || 0)))
+      : 0;
+
+    const overall = Math.round(
+      discipline * 0.3 +
+        careerRate * 0.25 +
+        financeRate * 0.25 +
+        fitnessRate * 0.15 +
+        mindsetRate * 0.05
+    );
+
+    const newStats = {
       overall,
       discipline,
       career: careerRate,
@@ -214,14 +287,96 @@ function Dashboard() {
       mindset: mindsetRate,
       xp: profile.data?.xp || 0,
       level: profile.data?.level || 1,
-    });
+    };
+
+    const identityData = {
+      scores: newStats,
+
+      habits: {
+        completedToday: completedHabits.map((x: any) => x.title),
+        missedToday: missedHabits.map((x: any) => x.title),
+        highestStreak,
+      },
+
+      career: {
+        completedTasks: c.filter((x: any) => x.completed).map((x: any) => x.title),
+        pendingTasks: c.filter((x: any) => !x.completed).map((x: any) => x.title),
+      },
+
+      finance: {
+        income,
+        expenses,
+        balance: income - expenses,
+        recentLogs: f.slice(0, 5).map((x: any) => ({
+          type: x.type,
+          amount: x.amount,
+          note: x.note,
+        })),
+      },
+
+      fitness: {
+        workoutsThisWeek: recentWorkouts.length,
+        recentWorkouts: w.slice(0, 5).map((x: any) => x.workout_name),
+      },
+
+      mindset: {
+        entriesThisWeek: recentMindset.length,
+        recentMood: m.slice(0, 3).map((x: any) => ({
+          gratitude: x.gratitude,
+          notes: x.notes,
+          mood: x.mood,
+          energy: x.energy,
+          stress: x.stress,
+        })),
+      },
+
+      aiCoachHistory: a.map((x: any) => ({
+        goal: x.goal,
+        category: x.category,
+        insight: x.insight,
+      })),
+
+      weeklyReviews: r.map((x: any) => ({
+        wins: x.wins,
+        failures: x.failures,
+        nextFocus: x.next_focus,
+      })),
+    };
+
+    setStats(newStats);
+    generateIdentity(identityData);
   }
 
   return (
     <div>
+      <Card className="mb-5 border border-blue-500/30 bg-gradient-to-br from-blue-950 via-slate-900 to-slate-950">
+        <p className="text-sm uppercase tracking-[0.3em] text-blue-300">
+          AI Powered Identity
+        </p>
+
+        <h2 className="mt-4 text-2xl font-black leading-tight md:text-4xl">
+          {identityLoading ? "Generating your identity..." : identity}
+        </h2>
+
+        <p className="mt-3 text-slate-400">
+          Generated from habits, missed habits, streaks, goals, reviews, mindset,
+          AI coach history and life scores.
+        </p>
+
+        <Button className="mt-5" onClick={load}>
+          Regenerate Identity
+        </Button>
+      </Card>
+
       <Card>
         <p className="text-slate-400">Overall Life Score</p>
-        <h2 className={`text-7xl font-black ${stats.overall >= 70 ? "text-green-500" : "text-orange-500"}`}>{stats.overall}</h2>
+        <h2
+          className={`text-7xl font-black ${
+            stats.overall >= 70 ? "text-green-500" : "text-orange-500"
+          }`}
+        >
+          {stats.overall}
+        </h2>
       </Card>
 
       <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -233,7 +388,9 @@ function Dashboard() {
         ))}
       </div>
 
-      <Button className="mt-5" onClick={load}>Refresh</Button>
+      <Button className="mt-5" onClick={load}>
+        Refresh
+      </Button>
     </div>
   );
 }
