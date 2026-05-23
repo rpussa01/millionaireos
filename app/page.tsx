@@ -1,5 +1,6 @@
 "use client";
 
+import HabitsScreen from "@/components/HabitsScreen";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { addXP, calcPercent, getUserId } from "@/lib/helpers";
@@ -396,7 +397,9 @@ function Dashboard() {
 }
 
 function Habits() {
-  return <Crud table="habits" field="title" title="Habits" placeholder="Read 10 pages" xp={5} habitMode />;
+ 
+  return <HabitsScreen />;
+
 }
 
 function Career() {
